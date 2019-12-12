@@ -1,16 +1,12 @@
 
-use std::env;
+use clap::{App, Arg};
 use std::process;
 use std::error::Error;
 use std::fs::File;
+use std::fs::metadata;
 use std::io::prelude::*;
 use std::path::Path;
 use std::ffi::OsStr;
-
-fn usage(program_name: String) {
-    println!("Usage: {} <json_file>  OR {} <yaml_file>", program_name, program_name);
-    println!("\tWill convert either a json file to yaml or a yaml file to json, depending on input.");
-}
 
 fn file_to_string(file_path: String) -> String {
     // Create a path to the desired file
@@ -71,13 +67,54 @@ fn convert(file_path: String) -> String {
     }
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        usage(args[0].clone());
-        process::exit(1);
+fn can_i_write_this_file(file_path: &str, force: bool) -> bool {
+    match metadata(file_path) {
+        Ok(f) => if force && f.is_file() && !f.permissions().readonly() {
+            true
+        } else {
+            false
+        },
+        Err(_err) => true,
+    }
+}
+
+fn write_to_file(data: String, file_path: String, force: bool) {
+    if can_i_write_this_file(&file_path, force) {
+        let mut f = File::create(&file_path).unwrap();
+        f.write_all(data.as_bytes()).unwrap();
     } else {
-        println!("{}", convert(args[1].clone()));
+        panic!("Cannot write to {}! If the file already exists, make sure it is a file, and it is not readonly, and use the force (-f).", file_path)
+    }
+}
+
+fn main() {
+    let matches = App::new("yason")
+        .version("0.1")
+        .author("Tim Hawes <thawes@gmail.com>")
+        .about("Converts json to yaml or yaml to json")
+        .arg(Arg::with_name("outfile")
+            .short("o")
+            .long("outfile")
+            .takes_value(true)
+            .help("Send output to file (use \"-\" for stdout).")
+            .default_value("-"))
+        .arg(Arg::with_name("force")
+                 .short("f")
+                 .long("force")
+                 .help("Force overwrite if file exists.")
+                 .takes_value(false))
+        .arg(Arg::with_name("infile")
+            .required(true)
+            .help("The file to convert."))
+        .get_matches();
+    let outdata: String = convert(matches.value_of("infile").unwrap()
+        .to_string());
+    let outfile = matches.value_of("outfile").unwrap().to_string();
+    let force: bool = matches.is_present("force");
+    if outfile.eq("-") {
+        println!("{}", outdata);
+    } else {
+        write_to_file(outdata, outfile, force);
     }
     process::exit(0);
 }
